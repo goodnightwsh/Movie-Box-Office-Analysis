@@ -1,0 +1,782 @@
+---
+title: "467"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+mainfont: "PingFang SC"
+date: "2025-12-02"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{R}
+library(tidyverse)
+library(jsonlite)
+library(car)
+library(lmtest)
+library(scales)
+library(corrplot)
+library(dplyr)
+library(tidyverse) 
+```
+
+
+
+```{R}
+path_final <- "/Users/linuohu/Desktop/467/project/tmdb_5000_movies.csv"
+
+data <- read_csv(path_final)
+
+print(glimpse(data))
+
+```
+
+
+
+```{R}
+response_variable <- data$revenue 
+
+summary(response_variable)
+
+sum(response_variable <= 0) 
+
+ggplot(data, aes(x = revenue)) + 
+  geom_histogram(bins = 50, fill = "skyblue", color = "black") + 
+  labs(title = "Revenue distribution", x = "revenue($)") +
+  theme_minimal()
+```
+
+```{R}
+data_clean <- data %>%
+  filter(revenue > 0 & budget > 0)
+
+cat("Remaining observations after filtering zero revenue and budget:", nrow(data_clean), "\n")
+
+data_clean <- data_clean %>%
+  mutate(log_revenue = log(revenue))
+
+cat("\nSummary of log(revenue):\n")
+print(summary(data_clean$log_revenue))
+
+ggplot(data_clean, aes(x = log_revenue)) +
+  geom_histogram(bins = 30, fill = "darkgreen", color = "white") +
+  geom_vline(xintercept = mean(data_clean$log_revenue), linetype = "dashed", color = "red", linewidth = 1) +
+  labs(title = "Distribution of Log-transformed Revenue",
+       x = "log(Revenue)",
+       y = "Frequency") +
+  theme_minimal()
+```
+
+
+```{R}
+
+cat("\nSummary of original Budget:\n")
+print(summary(data_clean$budget)) 
+
+p1_original <- ggplot(data_clean, aes(x = budget)) +
+  geom_histogram(bins = 20, fill = "#F7DC6F", color = "black") + 
+  geom_vline(xintercept = mean(data_clean$budget, na.rm = TRUE), linetype = "dashed", color = "red", size = 1) + 
+  labs(title = "Distribution of Original Budget (Highly Skewed)",
+       x = "Budget (Original Scale)",
+       y = "Frequency") +
+  theme_minimal() +
+  xlim(0, quantile(data_clean$budget, 0.99, na.rm = TRUE))
+print(p1_original)
+
+cat("\nSummary of original Popularity:\n")
+print(summary(data_clean$popularity))
+
+p2_original <- ggplot(data_clean, aes(x = popularity)) +
+  geom_histogram(bins = 20, fill = "#9DD0E3", color = "black") +
+  geom_vline(xintercept = mean(data_clean$popularity, na.rm = TRUE), linetype = "dashed", color = "red", size = 1) +
+  labs(title = "Distribution of Original Popularity (Highly Skewed)",
+       x = "Popularity (Original Scale)",
+       y = "Frequency") +
+  theme_minimal() +
+  xlim(0, quantile(data_clean$popularity, 0.99, na.rm = TRUE))
+print(p2_original)
+
+```
+
+
+
+
+```{R}
+data_clean <- data_clean %>%
+  mutate(log_budget = log(budget),
+         log_popularity = log(popularity))
+
+cat("\nSummary of log(budget):\n")
+print(summary(data_clean$log_budget))
+
+p1 <- ggplot(data_clean, aes(x = log_budget)) +
+  geom_histogram(bins = 30, fill = "gold", color = "black") +
+  geom_vline(xintercept = mean(data_clean$log_budget), linetype = "dashed", color = "red", size = 1) +
+  labs(title = "Distribution of Log-transformed Budget",
+       x = "log(Budget)",
+       y = "Frequency") +
+  theme_minimal()
+print(p1)
+
+cat("\nSummary of log(popularity):\n")
+print(summary(data_clean$log_popularity))
+
+p2 <- ggplot(data_clean, aes(x = log_popularity)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+  geom_vline(xintercept = mean(data_clean$log_popularity), linetype = "dashed", color = "red", size = 1) +
+  labs(title = "Distribution of Log-transformed Popularity",
+       x = "log(Popularity)",
+       y = "Frequency") +
+  theme_minimal()
+print(p2)
+```
+
+
+```{R}
+df_for_corr <- data_clean %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average) %>%
+  na.omit()
+
+correlation_matrix <- cor(df_for_corr)
+
+cat("### Correlation Matrix of Key Quantitative Variables ###\n")
+print(round(correlation_matrix, 3))
+
+corrplot(correlation_matrix, 
+         method = "color", 
+         type = "upper", 
+         tl.col = "black", 
+         addCoef.col = "black",
+         tl.srt = 45, 
+         diag = FALSE)
+
+```
+
+
+```{R}
+
+df_final <- data %>%
+  filter(revenue > 0 & budget > 0) %>%
+  mutate(log_revenue = log(revenue),
+         log_budget = log(budget),
+         log_popularity = log(popularity)) %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average, original_language, genres) %>%
+  na.omit() 
+
+key_vars <- c("log_revenue", "log_budget", "log_popularity", "runtime", "vote_average")
+
+summary_stats <- df_final %>%
+  pivot_longer(cols = all_of(key_vars), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable) %>%
+  summarise(
+    N = n(),
+    Mean = mean(Value),
+    SD = sd(Value),
+    Min = min(Value),
+    Q1 = quantile(Value, 0.25),
+    Median = median(Value),
+    Q3 = quantile(Value, 0.75),
+    Max = max(Value)
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(., 2)))
+
+cat("### Descriptive Statistics of Key Quantitative Variables (for Distribution Description) ###\n")
+print(summary_stats)
+```
+
+```{R}
+df_genres <- df_final %>%
+  mutate(
+    main_genre = str_extract(genres, '"name":\\s*"([^"]+)"', group = 1)
+  )
+
+top_genres <- df_genres %>%
+  count(main_genre, sort = TRUE) %>%
+  slice_head(n = 5)
+
+cat("### Top 5 Main Genres ###\n")
+print(top_genres)
+
+
+top_language <- df_final %>%
+  count(original_language, sort = TRUE) %>%
+  slice_head(n=5)
+
+print(top_language)
+```
+
+```{R}
+ 
+
+p5 <- ggplot(df_final, aes(y = log_revenue)) +
+  geom_boxplot(fill = "pink", color = "darkred") +
+  labs(title = "Boxplot of Log-transformed Revenue",
+       y = "log(Revenue)") +
+  theme_minimal()
+print(p5)
+
+p6 <- ggplot(df_final, aes(y = log_budget)) +
+  geom_boxplot(fill = "orange", color = "darkorange") +
+  labs(title = "Boxplot of Log-transformed Budget",
+       y = "log(Budget)") +
+  theme_minimal()
+print(p6)
+
+```
+
+
+```{R}
+df_genres <- df_final %>%
+  mutate(
+    main_genre = str_extract(genres, '"name":\\s*"([^"]+)"', group = 1)
+  )
+
+top_5_genres_names <- df_genres %>%
+  count(main_genre, sort = TRUE) %>%
+  slice_head(n = 5) %>%
+  pull(main_genre)
+
+
+df_model_ready <- df_genres %>%
+  mutate(
+    Is_Drama = as.numeric(main_genre == top_5_genres_names[1]),
+    Is_Comedy = as.numeric(main_genre == top_5_genres_names[2]),
+    Is_Thriller = as.numeric(main_genre == top_5_genres_names[3]),
+    Is_Action = as.numeric(main_genre == top_5_genres_names[4]),
+    Is_Adventure = as.numeric(main_genre == top_5_genres_names[5]),
+    
+    Is_English = as.numeric(original_language == "en")
+  ) %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average, 
+         Is_Drama, Is_Comedy, Is_Thriller, Is_Action, Is_Adventure, Is_English)
+
+cat("### Final Data Frame Variables for Model Fitting (First 3 Rows) ###\n")
+print(head(df_model_ready, 3))
+```
+
+```{R}
+library(ggplot2)
+library(dplyr)
+library(stringr)
+
+
+df_plot_ready <- data %>%
+  filter(revenue > 0 & budget > 0) %>%
+  mutate(log_revenue = log(revenue),
+         main_genre = str_extract(genres, '"name":\\s*"([^"]+)"', group = 1)) %>%
+  dplyr::select(log_revenue, main_genre, original_language) %>%
+  na.omit() 
+
+
+top_n_genres <- df_plot_ready %>%
+  count(main_genre, sort = TRUE) %>%
+  slice_head(n = 5) %>% 
+  pull(main_genre)
+
+df_genre_plot <- df_plot_ready %>%
+  filter(main_genre %in% top_n_genres) %>%
+  mutate(main_genre = factor(main_genre, levels = top_n_genres)) 
+
+ggplot(df_genre_plot, aes(x = main_genre, y = log_revenue, fill = main_genre)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Top 5 Genres Log Revenue Distribution",
+       x = "Genre",
+       y = "Log Revenue (ln(Revenue))") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.position = "none")
+
+```
+
+
+
+```{R}
+library(ggplot2)
+library(dplyr)
+
+top_n_languages <- df_plot_ready %>%
+  count(original_language, sort = TRUE) %>%
+  slice_head(n = 5) %>% 
+  pull(original_language)
+
+df_lang_plot <- df_plot_ready %>%
+  filter(original_language %in% top_n_languages) %>%
+  mutate(original_language = factor(original_language, levels = top_n_languages)) 
+
+ggplot(df_lang_plot, aes(x = original_language, y = log_revenue, fill = original_language)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Top 5 Languages Log Revenue Distribution",
+       x = "Original Language",
+       y = "Log Revenue (ln(Revenue))") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+```
+
+
+```{R}
+library(dplyr)
+library(stringr)
+
+
+df_genres <- data %>%
+  filter(revenue > 0 & budget > 0) %>%
+  mutate(log_revenue = log(revenue),
+         log_budget = log(budget),
+         log_popularity = log(popularity),
+         main_genre = str_extract(genres, '"name":\\s*"([^"]+)"', group = 1)
+  )
+
+top_5_genres_names <- df_genres %>%
+  count(main_genre, sort = TRUE) %>%
+  slice_head(n = 5) %>%
+  pull(main_genre)
+
+print(top_5_genres_names) 
+
+df_model_ready <- df_genres %>%
+  mutate(
+    Is_Drama = as.numeric(main_genre == top_5_genres_names[1]),
+    Is_Comedy = as.numeric(main_genre == top_5_genres_names[2]),
+    Is_Thriller = as.numeric(main_genre == top_5_genres_names[3]),
+    Is_Action = as.numeric(main_genre == top_5_genres_names[4]),
+    Is_Adventure = as.numeric(main_genre == top_5_genres_names[5]), 
+    
+    Is_English = as.numeric(original_language == "en")
+  ) %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average, 
+         Is_Drama, Is_Comedy, Is_Thriller, Is_Action, Is_Adventure, Is_English) %>% 
+  na.omit() 
+
+
+
+model_full <- lm(log_revenue ~ log_budget + log_popularity + runtime + vote_average + 
+                             Is_Drama + Is_Comedy + Is_Thriller + Is_Action + Is_Adventure + Is_English, 
+                           data = df_model_ready)
+
+summary(model_full)
+```
+
+
+
+```{R}
+
+plot(model_full, which = 1) 
+
+plot(model_full, which = 2)
+
+```
+
+
+
+```{R}
+model_reduced <- lm(log_revenue ~ log_budget + log_popularity + vote_average + 
+                    Is_Comedy + Is_Action + Is_Adventure + Is_English, 
+                 data = df_model_ready)
+
+cat("### Reduced Model Fitting Results ###\n")
+summary(model_reduced)
+
+anova_result <- anova(model_reduced, model_full)
+
+cat("\n### F Test Results (ANOVA Comparison) ###\n")
+print(anova_result)
+```
+
+
+```{R}
+model_full_interaction <- lm(log_revenue ~ log_budget * (Is_Drama + Is_Comedy + Is_Thriller + Is_Action+ Is_Adventure) + 
+                               log_popularity + vote_average + Is_English, 
+                             data = df_model_ready)
+
+cat("### Comprehensive Interaction ANCOVA Model (Log(Budget) x Top 4 Genres) ###\n")
+summary(model_full_interaction)
+
+anova_result_joint_interaction <- anova(model_reduced, model_full_interaction)
+
+cat("\n### F Test Results: Joint Significance of Log(Budget) and Top 4 Genres Interaction ###\n")
+print(anova_result_joint_interaction)
+```
+
+
+```{R}
+
+library(MASS)      
+library(dplyr)     
+library(stringr)   
+library(tidyverse) 
+set.seed(42)       
+
+format_currency <- function(x) {
+    format(round(as.numeric(x), 0), big.mark = ",", scientific = FALSE)
+}
+
+
+
+path_final <- "/Users/linuohu/Desktop/467/project/tmdb_5000_movies.csv"
+data <- read_csv(path_final)
+
+df_final <- data %>%
+  filter(revenue > 0 & budget > 0) %>%
+  mutate(log_revenue = log(revenue),
+         log_budget = log(budget),
+         log_popularity = log(popularity)) %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average, original_language, genres, revenue) %>%
+  na.omit()
+
+df_genres <- df_final %>%
+  mutate(main_genre = str_extract(genres, '"name":\\s*"([^"]+)"', group = 1))
+
+top_5_genres_names <- df_genres %>%
+  count(main_genre, sort = TRUE) %>%
+  slice_head(n = 5) %>%
+  pull(main_genre)
+
+df_model_ready <- df_genres %>%
+  mutate(
+    Is_Drama = as.numeric(main_genre == top_5_genres_names[1]),
+    Is_Comedy = as.numeric(main_genre == top_5_genres_names[2]),
+    Is_Thriller = as.numeric(main_genre == top_5_genres_names[3]),
+    Is_Action = as.numeric(main_genre == top_5_genres_names[4]),
+    Is_English = as.numeric(original_language == "en")
+  ) %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average, 
+         Is_Drama, Is_Comedy, Is_Thriller, Is_Action, Is_English, revenue) %>%
+    na.omit()
+
+
+cat("\n--- 2. Selecting Median Revenue Movie Data Point ---\n")
+
+median_log_revenue <- median(df_model_ready$log_revenue)
+median_index <- which.min(abs(df_model_ready$log_revenue - median_log_revenue))
+representative_data <- df_model_ready[median_index, ]
+
+actual_revenue_median <- representative_data$revenue 
+new_data <- representative_data %>% 
+    dplyr::select(log_budget, log_popularity, runtime, vote_average, Is_Drama, Is_Comedy, Is_Thriller, Is_Action, Is_English)
+
+new_data_reduced <- new_data %>% dplyr::select(-runtime, -Is_Thriller)
+cat(sprintf("Selected movie's Actual Revenue: %s\n", format_currency(actual_revenue_median)))
+
+
+cat("\n--- 3. OLS Modeling and Prediction Intervals Calculation ---\n")
+
+full_model_formula <- log_revenue ~ log_budget + log_popularity + runtime + vote_average + 
+                                    Is_Drama + Is_Comedy + Is_Thriller + Is_Action + Is_English
+
+reduced_model_formula <- log_revenue ~ log_budget + log_popularity + vote_average + 
+                                     Is_Drama + Is_Comedy + Is_Action + Is_English
+
+model_full <- lm(full_model_formula, data = df_model_ready)
+model_reduced <- lm(reduced_model_formula, data = df_model_ready)
+
+pred_reduced <- predict(model_reduced, new_data_reduced, interval = "prediction", level = 0.95)
+pred_full <- predict(model_full, new_data, interval = "prediction", level = 0.95)
+
+
+cat("OLS 95% Prediction Intervals (PI) for Median Revenue Movie:\n")
+cat(sprintf("   - Actual Revenue of Selected Movie: %s\n", format_currency(actual_revenue_median)))
+
+
+usd_reduced <- exp(pred_reduced)
+cat(sprintf("   - Predicted Revenue (Point Estimate): %s\n", format_currency(usd_reduced[1, "fit"])))
+cat(sprintf("   - 95%% PI Lower Bound:               %s\n", format_currency(usd_reduced[1, "lwr"])))
+cat(sprintf("   - 95%% PI Upper Bound:               %s\n", format_currency(usd_reduced[1, "upr"])))
+cat(sprintf("   - PI Width:                         %s\n", format_currency(usd_reduced[1, "upr"] - usd_reduced[1, "lwr"])))
+
+usd_full <- exp(pred_full)
+cat("\n--- OLS FULL MODEL ---\n")
+cat(sprintf("   - Predicted Revenue (Point Estimate): %s\n", format_currency(usd_full[1, "fit"])))
+cat(sprintf("   - 95%% PI Lower Bound:               %s\n", format_currency(usd_full[1, "lwr"])))
+cat(sprintf("   - 95%% PI Upper Bound:               %s\n", format_currency(usd_full[1, "upr"])))
+cat(sprintf("   - PI Width:                         %s\n", format_currency(usd_full[1, "upr"] - usd_full[1, "lwr"])))
+```
+
+
+
+
+```{R}
+
+library(MASS)    
+library(dplyr)
+library(sandwich) 
+library(lmtest)
+library(stringr) 
+set.seed(2332) 
+
+df_temp <- data %>%
+  filter(revenue > 0 & budget > 0) %>%
+  mutate(main_genre = str_extract(genres, '"name":\\s*"([^"]+)"', group = 1))
+
+top_5_genres_names <- df_temp %>%
+  count(main_genre, sort = TRUE) %>%
+  slice_head(n = 5) %>%
+  pull(main_genre) # 抓取 Top 5 Genre 名称
+
+print(top_5_genres_names) 
+
+df_model_ready <- df_temp %>%
+  mutate(log_revenue = log(revenue),
+         log_budget = log(budget),
+         log_popularity = log(popularity),
+         
+         Is_Drama = as.numeric(main_genre == top_5_genres_names[1]),
+         Is_Comedy = as.numeric(main_genre == top_5_genres_names[2]),
+         Is_Thriller = as.numeric(main_genre == top_5_genres_names[3]),
+         Is_Action = as.numeric(main_genre == top_5_genres_names[4]),
+         Is_Adventure = as.numeric(main_genre == top_5_genres_names[5]), 
+         
+         Is_English = as.numeric(original_language == "en")
+  ) %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average,
+                Is_Drama, Is_Comedy, Is_Thriller, Is_Action, Is_Adventure, Is_English) %>%
+  na.omit() 
+
+train_size <- floor(0.80 * nrow(df_model_ready))
+train_indices <- sample(seq_len(nrow(df_model_ready)), size = train_size)
+train_data <- df_model_ready[train_indices, ]
+
+full_model_formula <- log_revenue ~ log_budget + log_popularity + runtime + vote_average + 
+                                    Is_Drama + Is_Comedy + Is_Thriller + Is_Action + Is_Adventure + Is_English 
+
+ols_full <- lm(full_model_formula, data = train_data)
+
+res_sq_full <- residuals(ols_full)^2
+res_sq_full[res_sq_full < 1e-6] <- 1e-6 
+variance_model_data <- cbind(train_data, res_sq = res_sq_full)
+
+variance_model_full <- lm(log(res_sq) ~ log_budget + log_popularity + runtime + vote_average, 
+                          data = variance_model_data)
+
+variance_estimates_full <- exp(predict(variance_model_full, newdata = train_data))
+wls_weights_full <- 1 / variance_estimates_full
+
+model_wls_full <- lm(full_model_formula, data = train_data, weights = wls_weights_full)
+
+wls_step_model <- stepAIC(model_wls_full, direction = "backward", trace = 1) 
+cat("WLS Stepwise Selection :\n")
+print(formula(wls_step_model))
+
+hc_vcov_wls_final <- vcovHC(wls_step_model, type = "HC3")
+print(coeftest(wls_step_model, vcov. = hc_vcov_wls_final))
+```
+
+
+
+```{R}
+
+par(mfrow = c(1, 2), mar = c(4.5, 4.5, 3, 1))
+
+# ---
+     main = "1. WLS Residuals vs. Fitted Values") 
+
+plot(wls_step_model, which = 2, 
+     main = "2. WLS Normal Q-Q Plot")
+
+par(mfrow = c(1, 1)) 
+
+
+```
+
+
+```{R}
+
+library(ggplot2)
+library(dplyr)
+library(stringr)
+set.seed(4222) 
+
+df_model_ready <- data %>%
+  filter(revenue > 0 & budget > 0) %>%
+  mutate(log_revenue = log(revenue),
+         log_budget = log(budget),
+         log_popularity = log(popularity),
+         Is_Drama = as.numeric(str_detect(genres, "Drama")),
+         Is_Comedy = as.numeric(str_detect(genres, "Comedy")),
+         Is_Thriller = as.numeric(str_detect(genres, "Thriller")),
+         Is_Action = as.numeric(str_detect(genres, "Action")),
+         Is_English = as.numeric(original_language == "en")
+  ) %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average, 
+                Is_Drama, Is_Comedy, Is_Thriller, Is_Action, Is_English) %>%
+  na.omit() 
+
+train_indices <- sample(seq_len(nrow(df_model_ready)), size = floor(0.80 * nrow(df_model_ready)))
+train_data <- df_model_ready[train_indices, ]
+test_data <- df_model_ready[-train_indices, ] 
+
+model_formula_simplified <- log_revenue ~ log_budget + log_popularity + runtime + vote_average + 
+                                          Is_Drama + Is_Comedy + Is_Thriller 
+
+ols_simplified <- lm(model_formula_simplified, data = train_data)
+res_sq <- residuals(ols_simplified)^2
+res_sq[res_sq < 1e-6] <- 1e-6 
+variance_model_data <- cbind(train_data, res_sq = res_sq)
+variance_model <- lm(log(res_sq) ~ log_budget + log_popularity + runtime + vote_average, data = variance_model_data)
+weights <- 1 / exp(predict(variance_model, newdata = train_data))
+wls_step_model <- lm(model_formula_simplified, data = train_data, weights = weights) 
+
+predicted_values_wls <- predict(wls_step_model, newdata = test_data)
+
+plot_data_wls <- data.frame(
+  Actual = test_data$log_revenue,
+  Predicted = predicted_values_wls
+)
+
+plot_range <- range(c(plot_data_wls$Actual, plot_data_wls$Predicted), na.rm = TRUE)
+
+ggplot(plot_data_wls, aes(x = Actual, y = Predicted)) +
+  geom_point(alpha = 0.6, color = "darkblue") + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red", size = 1) +
+  geom_smooth(method = "lm", color = "darkgreen", se = FALSE) +
+  labs(title = "WLS Predicted vs. Actual Log Revenue (Test Set)",
+       x = "Actual Log Revenue",
+       y = "Predicted Log Revenue") +
+  coord_fixed(xlim = plot_range, ylim = plot_range) +
+  theme_minimal(base_size = 14)
+```
+
+
+```{R}
+
+library(MASS)      
+library(dplyr)      
+library(stringr)   
+library(tidyverse) 
+
+format_currency <- function(x) {
+    format(round(as.numeric(x), 0), big.mark = ",", scientific = FALSE)
+}
+
+if (!exists("data") || nrow(data) == 0) {
+    stop("Error: 'data' object is missing or empty. Please load your dataset first.")
+}
+
+cat("--- 1. Data Preparation and Feature Engineering ---\n")
+
+df_temp <- data %>%
+  filter(revenue > 0 & budget > 0) %>%
+  mutate(main_genre = str_extract(genres, '"name":\\s*"([^"]+)"', group = 1))
+
+top_5_genres_names <- df_temp %>%
+  filter(!is.na(main_genre)) %>%
+  count(main_genre, sort = TRUE) %>%
+  slice_head(n = 5) %>%
+  pull(main_genre) 
+
+df_model_ready <- df_temp %>%
+  mutate(
+    log_revenue = log(revenue),
+    log_budget = log(budget),
+    log_popularity = log(popularity),
+    Is_Drama     = as.numeric(main_genre == top_5_genres_names[1]),
+    Is_Comedy    = as.numeric(main_genre == top_5_genres_names[2]),
+    Is_Thriller  = as.numeric(main_genre == top_5_genres_names[3]),
+    Is_Action    = as.numeric(main_genre == top_5_genres_names[4]),
+    Is_Adventure = as.numeric(main_genre == top_5_genres_names[5]), 
+    Is_English   = as.numeric(original_language == "en")
+  ) %>%
+  dplyr::select(log_revenue, log_budget, log_popularity, runtime, vote_average,
+                Is_Drama, Is_Comedy, Is_Thriller, Is_Action, Is_Adventure, Is_English, revenue) %>%
+  na.omit()
+
+
+cat("\n--- 2. Data Splitting ---\n")
+train_size <- floor(0.80 * nrow(df_model_ready))
+train_indices <- sample(seq_len(nrow(df_model_ready)), size = train_size)
+train_data <- df_model_ready[train_indices, ]
+test_data <- df_model_ready[-train_indices, ] # Test data for prediction
+
+full_model_formula <- log_revenue ~ log_budget + log_popularity + runtime + vote_average + 
+                                   Is_Drama + Is_Comedy + Is_Thriller + Is_Action + Is_Adventure + Is_English 
+
+
+cat("\n--- 3. WLS Stage I & II: Variance Model Estimation (on Training Data) ---\n")
+
+ols_full <- lm(full_model_formula, data = train_data)
+
+res_sq_full <- residuals(ols_full)^2
+res_sq_full[res_sq_full < 1e-6] <- 1e-6 # Avoid log(0)
+variance_model_data <- cbind(train_data, res_sq = res_sq_full)
+
+variance_model_full <- lm(log(res_sq) ~ log_budget + log_popularity + runtime + vote_average, 
+                          data = variance_model_data)
+
+
+cat("\n--- 4. WLS Stage III & IV: Stepwise Selection ---\n")
+
+variance_estimates_full <- exp(predict(variance_model_full, newdata = train_data))
+wls_weights_full <- 1 / variance_estimates_full
+model_wls_full <- lm(full_model_formula, data = train_data, weights = wls_weights_full)
+
+wls_step_model <- stepAIC(model_wls_full, direction = "backward", trace = 0) 
+
+cat("Final WLS Model Formula:\n")
+print(formula(wls_step_model))
+
+
+cat("\n--- 5. WLS Prediction Interval Calculation (on entire Test Data) ---\n")
+
+wls_predictions <- predict(
+    wls_step_model, 
+    newdata = test_data, 
+    se.fit = TRUE
+)
+
+estimated_variance <- exp(predict(
+    variance_model_full, 
+    newdata = test_data
+)) 
+
+se_prediction_error <- sqrt(
+    wls_predictions$se.fit^2 + estimated_variance
+)
+
+alpha <- 0.05
+df <- wls_step_model$df.residual
+t_score <- qt(1 - alpha/2, df = df)
+
+PI_lower_log <- wls_predictions$fit - t_score * se_prediction_error
+PI_upper_log <- wls_predictions$fit + t_score * se_prediction_error
+
+wls_pi_results <- data.frame(
+    Actual_Revenue = test_data$revenue,
+    log_revenue_actual = test_data$log_revenue,
+    Predicted_log = wls_predictions$fit,
+    PI_Lower_log = PI_lower_log,
+    PI_Upper_log = PI_upper_log
+) %>%
+    mutate(
+        Predicted_Revenue = exp(Predicted_log),
+        PI_Lower_Revenue = exp(PI_Lower_log),
+        PI_Upper_Revenue = exp(PI_Upper_log)
+    )
+
+
+cat("\n 6. Final Single-Point Representative Output (Actual Median Movie) ---\n")
+
+median_actual_log <- median(wls_pi_results$log_revenue_actual)
+median_index <- which.min(abs(wls_pi_results$log_revenue_actual - median_actual_log))
+representative_row <- wls_pi_results[median_index, ]
+
+predicted_usd <- representative_row$Predicted_Revenue
+lower_usd <- representative_row$PI_Lower_Revenue
+upper_usd <- representative_row$PI_Upper_Revenue
+actual_usd <- representative_row$Actual_Revenue
+
+
+cat("WLS 95% Prediction Interval for Median Actual Revenue Movie:\n")
+
+cat(sprintf("   - Actual Revenue of Selected Movie: %s\n", format_currency(actual_usd)))
+cat(sprintf("   - Predicted Revenue (Point Estimate): %s\n", format_currency(predicted_usd)))
+cat(sprintf("   - 95%% PI Lower Bound:               %s\n", format_currency(lower_usd)))
+cat(sprintf("   - 95%% PI Upper Bound:               %s\n", format_currency(upper_usd)))
+cat(sprintf("   - PI Width:                         %s\n", format_currency(upper_usd - lower_usd)))
+```
+
+
+
+```{R}
+
+```
